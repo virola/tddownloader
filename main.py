@@ -1,9 +1,17 @@
-import os, sys
+import re
+import requests
+import time
+import tangdou
+from headers import headers
+from moviepy.editor import *
+import os
+import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-import tangdou, time, requests, re
-from moviepy.editor import *
-from headers import headers
+links = []
+re_getlink = r'?vid=[0-9]*'
+conf_file = 'listfile'
+
 
 def downloader(name, url, path):
     if not os.path.exists(path):
@@ -13,30 +21,32 @@ def downloader(name, url, path):
     response = requests.get(url, headers=header, stream=True)
     size = 0                                                # Downloaded file size
     chunk_size = 1024                                       # data size per download
-    content_size = int(response.headers['content-length'])  # Total download file size
+    # Total download file size
+    content_size = int(response.headers['content-length'])
     if response.status_code == 200:                         # Download succesful
         filepath = os.path.join(path, name + '.mp4')
         with open(filepath, 'wb') as file:                  # Show prograss bar
-            for data in response.iter_content(chunk_size = chunk_size):
+            for data in response.iter_content(chunk_size=chunk_size):
                 print('\rtotal:{size:.2f} MB'.format(
-                        size = content_size / chunk_size / 1024
-                    ), end='', flush=True)
+                    size=content_size / chunk_size / 1024
+                ), end='', flush=True)
                 file.write(data)
                 size += len(data)
                 percentage = size / content_size
                 print(' |%s%s| %.2f%%' % (
-                        '▆' * int(percentage * 100), 
-                        ' ' * (100 - int(percentage * 100)),
-                        float(size / content_size * 100)
-                    ), end='', flush=True)
+                    '▆' * int(percentage * 100),
+                    ' ' * (100 - int(percentage * 100)),
+                    float(size / content_size * 100)
+                ), end='', flush=True)
         end = time.time()                                   # Download completed
         if os.path.exists(filepath):
-            print('\r[%.2f s] Download completed, save to %s' % 
-                    (end - start, os.path.abspath(filepath)))
+            print('\r[%.2f s] Download completed, save to %s' %
+                  (end - start, os.path.abspath(filepath)))
         else:
             raise OSError('Download error, {} does not exist'.format(filepath))
     else:
         raise RuntimeError('request error, error code:', response.status_code)
+
 
 def time_check(time_str):
     '''convert time string to tuple and check its format
@@ -61,9 +71,40 @@ def time_check(time_str):
     time.reverse()
     return tuple(time)
 
-def main():
+
+def cprint(text, color=7):
+    '''
+    output colored text if is not in Windows
+    '''
+    if sys.platform != 'win32':
+        print("\x1b[3" + str(color) + "m" + text + "\x1b[0m")
+    else:
+        print(text)
+
+
+def get_links():
+    global links
+    cprint("Getting links from file " + str(conf_file), 6)
+    try:
+        listfile = open(conf_file, 'r')
+    except:
+        cprint("Fatal: Error occured when opening file " +
+               conf_file + ". Exiting.", 1)
+        exit(1)
+    rawdata = listfile.read().split('\n')
+    for line in rawdata:
+        links.append(line)
+        # if re.search(pattern=re_getlink, string=line):
+        #     links.append(line.replace('aqiniushare', 'aqiniu'))
+    listfile.close()
+    del listfile
+
+# 下载视频
+
+
+def dlvideo(url):
     while True:
-        url = input('请输入视频链接或vid编号:')
+        # url = input('请输入视频链接或vid编号:')
         vid = tangdou.get_vid(url)
         if vid is None:
             print("请输入包含vid参数的视频链接或直接输入vid编号！")
@@ -78,14 +119,15 @@ def main():
             else:                   # Successfully obtained video information
                 break
 
-    path = input('请输入文件储存目录(默认为当前目录):')
+    path = ''
+    # path = input('请输入文件储存目录(默认为当前目录):')
     if path == '':
         path = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(path, 'Download')
     if not os.path.exists(path):    # Create the directory if it does not exist
-         os.mkdir(path)
+        os.mkdir(path)
     video_info['path'] = path
-    filepath =  os.path.join(video_info['path'], video_info['name'] + '.mp4')
+    filepath = os.path.join(video_info['path'], video_info['name'] + '.mp4')
     if os.path.exists(filepath):
         print(filepath, '已存在！')
     else:
@@ -94,7 +136,9 @@ def main():
     video = VideoFileClip(filepath)
 
     while True:
-        clip_start = input('剪辑起始时间(默认为不剪辑):')
+        # 剪辑起始时间 - 默认糖豆 12s -但截止时间不确定，所以不处理剪辑
+        # clip_start = input('剪辑起始时间(默认为不剪辑):')
+        clip_start = ''
         if clip_start == '':        # Do not clip
             break
 
@@ -121,28 +165,48 @@ def main():
             print('输入有误，请重新输入！')
 
         if save == 'y':
-            filepath = os.path.join(video_info['path'], video_info['name'] + '_clip.mp4')
+            filepath = os.path.join(
+                video_info['path'], video_info['name'] + '_clip.mp4')
             video.write_videofile(filepath)
             if not os.path.exists(filepath):
-                raise OSError('video save error, {} does not exist'.format(filepath))
+                raise OSError(
+                    'video save error, {} does not exist'.format(filepath))
 
     while True:
-        convert = input('是否转换为音频（y/n）:')
+        # convert = input('是否转换为音频（y/n）:')
+        convert = 'n'
         if convert == 'y' or convert == 'n':
             break
         print('输入有误，请重新输入！')
 
     if convert == 'y':
         audio = video.audio
-        filepath = os.path.join(video_info['path'], video_info['name'] + '.mp3')
+        filepath = os.path.join(
+            video_info['path'], video_info['name'] + '.mp3')
         audio.write_audiofile(filepath)
         if not os.path.exists(filepath):
-            raise OSError('audio save error, {} does not exist'.format(filepath))
+            raise OSError(
+                'audio save error, {} does not exist'.format(filepath))
+
+
+def main():
+    get_links()
+    if len(links) == 0:
+        cprint("Fatal: No links found.", 1)
+        cprint("Usage: listfile 里配置的链接要包含vid=xxx \n")
+        exit(1)
+
+    for link in links:
+        dlvideo(link)
+
 
 if __name__ == '__main__':
     print('===================糖豆视频下载器 By CCBP===================')
-    print('     使用回车键（Enter）选择默认值，使用Ctrl+C退出程序')
-    print('视频剪辑的时间输入以" "、"."、":"、"："、","、"，"作为分隔符')
+    print('链接配置在 listfile 文件中，每行一个地址，即刻开始自动下载...')
+    print('     使用Ctrl+C退出程序')
+    # print('     使用回车键（Enter）选择默认值，使用Ctrl+C退出程序')
+    # print('视频剪辑的时间输入以" "、"."、":"、"："、","、"，"作为分隔符')
     print('============================================================')
-    while True:
-        main()
+
+    main()
+    # while True:
